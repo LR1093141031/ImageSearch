@@ -6,8 +6,7 @@ from retrying import retry
 # 为网络不好的情况加的retry
 agency = None
 # 使用代理的话就修改为代理地址
-api_key = ''  # "6dc42921e33dc26514cb96b1f3832c997397aea9" '4a0c3fb88e0bbeac5248c5eed5df131129762f1a'
-# agency 代理地址 api_key 为Saucenao网站的api许可，注册一个点账号信息就有了，也可以留空，100次访问/ip日
+api_key = '' # agency 代理地址 api_key 为Saucenao网站的api许可，注册一个点账号信息就有了，也可以留空，100次访问/ip日
 
 
 class SauceNao:
