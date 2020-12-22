@@ -138,6 +138,7 @@ class SauceNao:
         return self.download_report  # 列表 每个元素都是下载好的图片全路径
 
 
+
 if __name__ == '__main__':  # 测试例子
     a = SauceNao()
     result = a.search(r'C:\Users\MSI-PC\Desktop\bmss\85262871.jpg')
