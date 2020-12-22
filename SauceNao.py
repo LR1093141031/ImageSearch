@@ -17,7 +17,8 @@ class SauceNao:
         self.api_key = api_key
         self.agency = agency
 
-        self.saucenao = httpx.Client(http2=False, verify=False, timeout=20, proxies=self.agency)  # http1模式 调用SauceNao api
+        self.saucenao = httpx.Client(http2=False, verify=False, timeout=20, proxies=self.agency)
+        # http1模式 调用SauceNao api
 
         self.saucenao_url = 'http://saucenao.com/search.php'
         self.api_mode = 0  # 0 =普通html, 1 = xml api（未实现）, 2 = json api
@@ -42,19 +43,15 @@ class SauceNao:
         self.download_report = []  # 匹配图片下载确认，成功则为全路径 失败为False
 
     def search(self, img_file_full_path: str):
-        # 判断下文件在不在，是否因网络问题而未完成下载
-        if (img_file_full_path is None) or (os.path.isfile(img_file_full_path) is False):
-            raise FileNotFoundError('SauceNao.search - 参数输入为空或无法找到该文件')
         file_name = os.path.basename(img_file_full_path)
         print(f'搜索图片名称:{file_name}')
-        img_files = {'file': ("image.png", open(img_file_full_path, 'rb'))}
-
+        files = {'file': ("image.png", open(img_file_full_path, 'rb'))}
         try:
-            response = self.saucenao.post(url=self.search_url, files=img_files)
-            print('SauceNao.search-response.status_code:', response.status_code)
+            response = self.saucenao.post(url=self.search_url, files=files)
+            print('SauceNao搜索状态码:', response.status_code)
         except Exception as e:
-            self.state = 'Saucenao请求出错啦！'
-            print('Saucenao请求出错啦！', e)
+            self.state = 'Saucenao请求出错'
+            print('Saucenao请求出错', e)
             return False
         return self._parser(response)
 
@@ -107,11 +104,16 @@ class SauceNao:
             print('SauceNao页面解析遇到结果数量不匹配错误')
             return False
 
-        result = {'img_url': self.img_url, 'correct_rate': self.correct_rate, 'result_title': self.result_title,
+        results = {'img_url': self.img_url, 'correct_rate': self.correct_rate, 'result_title': self.result_title,
                   'result_content': self.result_content}
-        for i in result.values():
-            print(i)
-        return result
+        return results
+
+    def _result_limit(self, results):  # 限制下结果数量
+        for key in results.keys():
+            if len(results[key]) >= self.numres+1:
+                results[key] = results[key][1:self.numres+1]
+            print(results[key])
+        return
 
     @retry(stop_max_attempt_number=2, wait_fixed=200)  # 自动重试2次，间隔0.2秒
     def pic_download(self, download_path: str, img_url=None):
@@ -123,24 +125,16 @@ class SauceNao:
             img_url_list = list(img_url)
 
         for url in img_url_list:
-            try:
-                pic_download_name = re.findall(r".*/(.*?\.jpg)", url)[0]
+            pic = self.saucenao.get(url, headers=self.result_img_download_headers)
+            try:  # 有时会遇到不包含文件名的url
+                file_name = re.findall(r".*/(.*?\.jpg)", url)[0]
             except Exception as e:
-                pic_download_name = re.findall(r"\d{5,15}", url)[0] + r'.jpg'
-            print(f'SauceNao下载模块获取图片id:{pic_download_name}')
+                file_name = re.findall(r"\d{5,15}", url)[0] + r'.jpg'
 
-            if os.path.isfile(f'{download_path}/{pic_download_name}') and (
-                    os.path.getsize(f'{download_path}/{pic_download_name}') >= 10):  # 文件存在的话就不下载了
-                print(f'图片ID {pic_download_name}已存在')
-                self.download_report.append(f'{download_path}/{pic_download_name}')
-            else:  # 文件不存在的话就下载
-                pic = self.saucenao.get(url, headers=self.result_img_download_headers)
-                self.state = f'Saucenao-pic_download 下载错误'
-
-                with open(f'{download_path}/{pic_download_name}', 'wb') as f:
-                    f.write(pic.content)
-                    print(f'图片ID {pic_download_name}下载完成')
-                    self.download_report.append(f'{download_path}/{pic_download_name}')
+            with open(f'{download_path}/{file_name}', 'wb') as f:
+                f.write(pic.content)
+                print(f'图片ID {file_name}下载完成')
+                self.download_report.append(f'{download_path}/{file_name}')
         return self.download_report  # 列表 每个元素都是下载好的图片全路径
 
 

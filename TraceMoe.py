@@ -11,7 +11,8 @@ class TraceMoe:
     def __init__(self):
         self.agency = agency
         self.state = 200
-        self.tracemoe_api = "https://trace.moe/api/search"
+        self.numres = 5  # 预定返回结果数
+        self.tracemoe_url = "https://trace.moe/api/search"
         self.tracemoe = httpx.Client(http2=False, verify=False, timeout=30, proxies=self.agency)
 
         self.img_url = []  # 匹配图片url
@@ -20,13 +21,12 @@ class TraceMoe:
         self.result_content = []  # 搜索结果副标题
         self.download_report = []  # 匹配图片下载确认，成功则为全路径 失败为False
 
-    def search(self, full_path=None):
-        if (full_path is None) or (not os.path.isfile(full_path)):
-            raise Exception("TraceMoe未输入文件全路径或找不到文件")
-
+    def search(self, img_file_full_path=None):
+        file_name = os.path.basename(img_file_full_path)
+        print(f'搜索图片名称:{file_name}')
+        files = {"image": ('anime.png', open(img_file_full_path, 'rb'))}
         try:
-            files = {"image": ('anime.png', open(full_path, 'rb'))}
-            response = self.tracemoe.post(url=self.tracemoe_api, files=files)
+            response = self.tracemoe.post(url=self.tracemoe_url, files=files)
             response_json = json.loads(response.text)
             print(f"TraceMoe搜索状态码{response.status_code}")
         except Exception as e:
@@ -58,11 +58,16 @@ class TraceMoe:
             url = f"https://trace.moe/thumbnail.php?anilist_id={i['anilist_id']}&file={i['filename']}&t={i['at']}&token={i['tokenthumb']}"
             self.img_url.append(url)
 
-        result = {'img_url': self.img_url, 'correct_rate': self.correct_rate, 'result_title': self.result_title,
+        results = {'img_url': self.img_url, 'correct_rate': self.correct_rate, 'result_title': self.result_title,
                   'result_content': self.result_content}
-        for i in result.values():
-            print(i)
-        return result
+        return self._result_limit(results)
+
+    def _result_limit(self, results):  # 限制下结果数量
+        for key in results.keys():
+            if len(results[key]) >= self.numres + 1:
+                results[key] = results[key][1:self.numres + 1]
+            print(results[key])
+        return results
 
     @retry(stop_max_attempt_number=2, wait_fixed=200)  # 自动重试两次，停顿0.2秒)
     def pic_download(self, download_path: str,  img_url=None):
@@ -75,10 +80,9 @@ class TraceMoe:
         for url in img_url_list:
             pic = self.tracemoe.get(url=url)
             file_name = re.findall(r'file=(.*)&t=', url)[0]
-            file_name = file_name.replace('[', '').replace(']', '')
-            print('下载图片', file_name)
             with open(f'{download_path}/{file_name}.jpg', 'wb') as pic_file:
                 pic_file.write(pic.content)
+            print(f'图片ID {file_name}下载完成')
             self.download_report.append(f"{download_path}/{file_name}.jpg")
         return self.download_report
 
