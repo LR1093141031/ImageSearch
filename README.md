@@ -9,4 +9,6 @@
 
 范例在每个.py文件最后
 
+返回为字典样式{'img_url': self.img_url, 'correct_rate': self.correct_rate, 'result_title': self.result_title, 'result_content': self.result_content}
+
 ——2020.12.22
