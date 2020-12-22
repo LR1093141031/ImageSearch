@@ -86,6 +86,7 @@ class TraceMoe:
             self.download_report.append(f"{download_path}/{file_name}.jpg")
         return self.download_report
 
+
 if __name__ == '__main__':  # 测试例子
     a = TraceMoe()
     result = a.search(r'C:\Users\MSI-PC\Desktop\bmss\85267677.jpg')
