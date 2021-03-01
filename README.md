@@ -1,14 +1,21 @@
 # ImageSearch
- SauceNao、Ascii2d、WhatsAnime 以图搜图网站的爬虫或api
+以图搜图的爬虫
 
-最初目的为方便给QQ机器人输出。因此相比其他作者的多了很多字符串拼接等处理，和通过QQ反馈的错误描述。
+现在支持以下网站
 
-能实现比较简单的搜图，并输出显示搜索结果，下载搜索结果图片。
+- [x] SauceNao
+- [x] Ascii2d
+- [x] WhatsAnime
+- [ ] Google
+- [ ] Baidu
 
-考虑到部分网站开始使用http2协议，需求httpx、lxml、retrying、BeautifulSoup4.
+考虑到部分网站开始使用http2协议，需求包：httpx、lxml、retrying、BeautifulSoup4.
 
 范例在每个.py文件最后
 
-返回为字典样式{'img_url': self.img_url, 'correct_rate': self.correct_rate, 'result_title': self.result_title, 'result_content': self.result_content}
+搜索结果返回为dict:{'img_url': self.img_url, 'correct_rate': self.correct_rate, 'result_title': self.result_title, 'result_content': self.result_content}
 
-——2020.12.22
+
+
+写的太屎了，一旦有时间马上重构。-2021.3.1
+
