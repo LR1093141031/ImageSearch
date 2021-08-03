@@ -2,7 +2,9 @@ import httpx
 from bs4 import BeautifulSoup
 import os
 import re
-from retrying import retry
+from AsyncDownloader import async_pic_download
+import asyncio
+
 agency = None  # 使用代理的话就修改为代理地址
 
 
@@ -13,9 +15,11 @@ class Ascii2d:
         self.numres = 5  # 预定返回结果数
         self.ascii2d_url = "https://ascii2d.net/search/multi"
         self.img_url_prefix = 'https://ascii2d.net/'
-        self.ascii2d = httpx.Client(http2=False, verify=False, timeout=30, proxies=self.agency)
+
+        self.async_ascii2d = httpx.AsyncClient(http2=False, verify=False, timeout=20, proxies=self.agency)
 
         self.img_url = []  # 匹配图片url
+        self.img_name = []  # 匹配图片文件名
         self.correct_rate = []  # 准确率，Ascii2d没有准确率
         self.result_title = []  # 结果标题
         self.result_content = []  # 搜索结果副标题
@@ -24,77 +28,92 @@ class Ascii2d:
 
         self.button_word = ['色合検索', '特徴検索', '詳細登録']
 
-    def search(self, img_file_full_path: str):
+    async def async_search(self, img_file_full_path: str):
         file_name = os.path.basename(img_file_full_path)
         print(f'搜索图片名称:{file_name}')
         files = {'file': ("image.png", open(img_file_full_path, 'rb'))}
         try:
-            response = self.ascii2d.post(url=self.ascii2d_url, files=files)
+            response = await self.async_ascii2d.post(url=self.ascii2d_url, files=files)
             print('Ascii2d搜索状态码:', response.status_code)
         except Exception as e:
-            self.state = 'Ascii2d请求出错'
-            print('Ascii2d请求出错', e)
+            self.state = 'Ascii2d网络请求出错'
+            print('Ascii2d网络请求出错', e)
             return False
         return self._parser(response)
 
     def _parser(self, response):
         soup = BeautifulSoup(response, 'html.parser', from_encoding='utf-8')
         items = soup.find_all(class_='row item-box')
+        results_num = len(items)
+
+        if results_num <= 1:
+            self.state = 'Ascii2d无搜索结果'
+            print('Ascii2d无搜索结果')
+            return False
+        else:
+            print(f'Ascii2d搜索到{results_num-1}个结果')
+
+        items = items[1: min(results_num, self.numres+1)]  # 限制搜索结果数量，第一个为无效结果
+
         for item in items:
+            # 匹配图片url
             url = self.img_url_prefix + item.find('img')['src']  # 获取页面全部结果图url
             self.img_url.append(url)
-            detail_a = item.find_all('a')  # 图片描述
-            detail_strong = item.find_all('strong')  # 图片描述_加粗 这个不常见
-            title = detail_a[0].string + (detail_strong[0].string if detail_strong else '')  # 图片描述标题
+            # 匹配图片文件名
+            self.img_name.append(self._image_url2name(url))
+            # 匹配图片标题
+            detail_a = item.find_all('a')
+            title = detail_a[0].string
             self.result_title.append(title)
-            content = detail_a[1].string  # 图片描述副标题
+            # 匹配图片副标题
+            content = detail_a[1].string
             self.result_content.append(content)
-
+            # 匹配图片置信率
+            self.correct_rate.append(None)
+            # 匹配图片超链接
             herf = ''
-            herf += detail_a[0]['herf'] if (detail_a[0].string not in self.button_word) and ('herf' in detail_a[0]) else ''
-            herf += ' ' + detail_a[1]['herf'] if (detail_a[1].string not in self.button_word) and ('herf' in detail_a[0]) else ''
+            herf += detail_a[0]['herf'] if (detail_a[0].string not in self.button_word) and (
+                        'herf' in detail_a[0]) else ''
+            herf += ' ' + detail_a[1]['herf'] if (detail_a[1].string not in self.button_word) and (
+                        'herf' in detail_a[0]) else ''
             self.herf.append(herf)
 
-            self.correct_rate.append(None)
+        results = {'img_url': self.img_url, 'correct_rate': self.correct_rate,
+                   'result_title': self.result_title, 'result_content': self.result_content}
 
-        results = {'img_url': self.img_url, 'correct_rate': self.correct_rate, 'result_title': self.result_title,
-              'result_content': self.result_content}
-
-        return self._result_limit(results)
-
-    def _result_limit(self, results):  # 限制下结果数量
-        for key in results.keys():
-            if len(results[key]) >= self.numres+1:
-                results[key] = results[key][1:self.numres+1]
-            print(results[key])
         return results
 
-    @retry(stop_max_attempt_number=2, wait_fixed=200)  # 自动重试2次，间隔0.2秒
-    def pic_download(self, download_path: str, img_url=None):
-        # 图片下载
-        if img_url is None:
-            print('===Ascii2d未输入下载url，尝试全部下载===')
-            img_url_list = self.img_url[1:self.numres+1]
-        else:
-            img_url_list = list(img_url)
+    @staticmethod
+    def _image_url2name(img_url: str) -> str:
+        """
+        从url获得图片文件名
+        :param img_url_list: 搜索结果图片url
+        :return img_name: 搜索结果图片名称
+        """
+        try:  # 有时会遇到不包含文件名的url
+            file_name = re.findall(r".*/(.*?\.jpg)", img_url)[0]
+            file_name = re.sub(r'[\[\](),!?\-@#$%^&*]', '', file_name)
+        except Exception as e:
+            file_name = re.findall(r"\d{5,15}", img_url)[0] + r'.jpg'
+        return file_name
 
-        for url in img_url_list:
-            pic = self.ascii2d.get(url)
-            self.state = f'Saucenao-pic_download 下载错误'
-            file_name = re.findall(r".*/(.*?\.jpg)", url)[0]
-            with open(f'{download_path}/{file_name}', 'wb') as f:
-                f.write(pic.content)
-                print(f'图片ID {file_name}下载完成')
-                self.download_report.append(f'{download_path}/{file_name}')
-        return self.download_report  # 列表 每个元素都是下载好的图片全路径
+    async def async_pic_download(self, download_path: str) -> list:
+        results = await async_pic_download(self.async_ascii2d, self.img_url, self.img_name, download_path)
+        if not self.async_ascii2d.is_closed:
+            await self.async_ascii2d.aclose()
+        return results
 
-if __name__ == '__main__':  # 测试例子
+
+async def main5():
     a = Ascii2d()
-    result = a.search(r'C:\Users\MSI-PC\Desktop\bmss\85262871.jpg')
-    # 搜索图片全路径
-    if result:  # 失败会返回False
-        pass
-        a.pic_download(download_path=r'C:\Users\MSI-PC\Desktop\bmss', img_url=None)
+    result = await a.async_search(r'C:\Users\MSI-PC\Desktop\bmss\86482016.jpg')
+    print(result)
+    if result:
+        pic_list = await a.async_pic_download(download_path=r'C:\Users\MSI-PC\Desktop\bmss')
+        print(pic_list)
     else:
         print(a.state)
-    # 匹配结果图片下载路径 图片url 不填url就默认将本次结果图片都下载
+
+
+if __name__ == '__main__':  # 测试例子
+    asyncio.run(main5())

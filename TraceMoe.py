@@ -2,9 +2,10 @@ import httpx
 import json
 import os
 import re
-from retrying import retry
+import asyncio
+from AsyncDownloader import async_pic_download
 
-agency = None
+agency = None  # 使用代理的话就修改为代理地址
 
 
 class TraceMoe:
@@ -12,21 +13,23 @@ class TraceMoe:
         self.agency = agency
         self.state = 200
         self.numres = 5  # 预定返回结果数
-        self.tracemoe_url = "https://trace.moe/api/search"
-        self.tracemoe = httpx.Client(http2=False, verify=False, timeout=30, proxies=self.agency)
+        self.tracemoe_url = "https://api.trace.moe/search?cutBorders&anilistInfo"
+
+        self.async_tracemoe = httpx.AsyncClient(http2=False, verify=False, timeout=20, proxies=self.agency)
 
         self.img_url = []  # 匹配图片url
+        self.img_name = []  # 匹配图片文件名
         self.correct_rate = []  # 准确率
         self.result_title = []  # 结果标题
         self.result_content = []  # 搜索结果副标题
         self.download_report = []  # 匹配图片下载确认，成功则为全路径 失败为False
 
-    def search(self, img_file_full_path=None):
+    async def async_search(self, img_file_full_path=None):
         file_name = os.path.basename(img_file_full_path)
         print(f'搜索图片名称:{file_name}')
         files = {"image": ('anime.png', open(img_file_full_path, 'rb'))}
         try:
-            response = self.tracemoe.post(url=self.tracemoe_url, files=files)
+            response = await self.async_tracemoe.post(url=self.tracemoe_url, files=files)
             response_json = json.loads(response.text)
             print(f"TraceMoe搜索状态码{response.status_code}")
         except Exception as e:
@@ -34,65 +37,70 @@ class TraceMoe:
             self.state = 'TraceMoe网络请求出错'
             return False
 
-        search_num = len(response_json['docs'])     # 搜索结果数
+        search_num = len(response_json['result'])     # 搜索结果数
         if search_num == 0:
-            print("TraceMoe搜索无结果")
-            self.state = 'TraceMoe无搜索匹配结果'
+            print("TraceMoe无搜索结果")
+            self.state = 'TraceMoe无搜索结果'
             return False
         return self._parser(response_json)
 
     def _parser(self, response_json):
-        for i in response_json['docs']:
-            # 搜索结果副标题
-            synonyms_chinese = i['synonyms_chinese'][0] if len(i['synonyms_chinese']) != 0 else ''
-            title = i['title']
-            self.result_title.append(f"{title} {synonyms_chinese}")
-            # 搜索结果副标题
+        results_num = len(response_json['result'])
+        if results_num == 0:
+            self.state = 'TraceMoe无搜索结果'
+            print('TraceMoe无搜索结果')
+            return False
+        else:
+            print(f'TraceMoe搜索到{results_num}个结果')
+
+        response_json['result'] = response_json['result'][: min(results_num, self.numres)]  # 限制搜索结果数量
+
+        for i in response_json['result']:
+            # 搜索结果标题与副标题
+            anilist_info_dict = i['anilist']['title']
+            title = '' + anilist_info_dict['native'] if anilist_info_dict['native'] else ''
+            title += anilist_info_dict['romaji'] if anilist_info_dict['romaji'] else ''
+            self.result_title.append(title)
+            # 搜索结果匹配位置
             episode = str(i['episode'])
-            at = str(int(i['at'] // 60)) + '分' + str(int(i['at'] % 60)) + '秒'
+            at = str(int(i['to'] // 60)) + '分' + str(int(i['to'] % 60)) + '秒'
             self.result_content.append(f"匹配位置 第{episode}集 {at}")
             # 准确率
             similarity = str(round(i['similarity'], 2) * 100)   #百分比化
             self.correct_rate.append(similarity + '%')
-            # 匹配图片url
-            url = f"https://trace.moe/thumbnail.php?anilist_id={i['anilist_id']}&file={i['filename']}&t={i['at']}&token={i['tokenthumb']}"
+            # 结果图片url
+            url = i['image']
+
+            if 'isAdult' in i['anilist'] and i['anilist']['isAdult']:  # 临时 防r18图  ===========================
+                url = None
+
             self.img_url.append(url)
+            # 结果图片名
+            file_name = re.sub(r'[\[\]()\'<>=:`,!?\-@#$%^&*]', '', i['filename']) + '.jpg'
+            self.img_name.append(file_name)
 
-        results = {'img_url': self.img_url, 'correct_rate': self.correct_rate, 'result_title': self.result_title,
-                  'result_content': self.result_content}
-        return self._result_limit(results)
-
-    def _result_limit(self, results):  # 限制下结果数量
-        for key in results.keys():
-            if len(results[key]) >= self.numres + 1:
-                results[key] = results[key][1:self.numres + 1]
-            print(results[key])
+        results = {'img_url': self.img_url, 'correct_rate': self.correct_rate,
+                   'result_title': self.result_title, 'result_content': self.result_content}
         return results
 
-    @retry(stop_max_attempt_number=2, wait_fixed=200)  # 自动重试两次，停顿0.2秒)
-    def pic_download(self, download_path: str,  img_url=None):
-        if img_url is None:
-            print('===TraceMoe未输入下载url，尝试全部下载===')
-            img_url_list = self.img_url
-        else:
-            img_url_list = list(img_url)
+    async def async_pic_download(self, download_path: str) -> list:
+        report = await async_pic_download(self.async_tracemoe, self.img_url, self.img_name, download_path)
+        if not self.async_tracemoe.is_closed:
+            await self.async_tracemoe.aclose()
+        return report
 
-        for url in img_url_list:
-            pic = self.tracemoe.get(url=url)
-            file_name = re.findall(r'file=(.*)&t=', url)[0]
-            with open(f'{download_path}/{file_name}.jpg', 'wb') as pic_file:
-                pic_file.write(pic.content)
-            print(f'图片ID {file_name}下载完成')
-            self.download_report.append(f"{download_path}/{file_name}.jpg")
-        return self.download_report
+
+async def main5():
+    a = TraceMoe()
+    result = await a.async_search(r'C:\Users\MSI-PC\Desktop\bmss\20210803195528.png')
+    print(result)
+    if result:
+        pic_list = await a.async_pic_download(download_path=r'C:\Users\MSI-PC\Desktop\bmss')
+        print(pic_list)
+    else:
+        print(a.state)
 
 
 if __name__ == '__main__':  # 测试例子
-    a = TraceMoe()
-    result = a.search(r'C:\Users\MSI-PC\Desktop\bmss\85267677.jpg')
-    # 搜索图片全路径
-    if result:  # 失败会返回False
-        a.pic_download(download_path=r'C:\Users\MSI-PC\Desktop\bmss', img_url=None)
-    else:
-        print(a.state)
-    # 匹配结果图片下载路径 图片url 不填url就默认将本次结果图片都下载
+    asyncio.run(main5())
+
