@@ -110,7 +110,7 @@ class SauceNao:
                     title_flag = False
                     continue
                 # 其余的全搞成content
-                result_content += content
+                result_content += f"{key}: {content}\n"  # 加个换行，好看一些
             self.result_title.append(result_title)
             self.result_content.append(result_content)
 
