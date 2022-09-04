@@ -1,13 +1,18 @@
-import os
+import json
 import re
 from lxml import etree
 import httpx
 import asyncio
+
+import os
+import sys
+sys.path.append(os.path.split(os.path.realpath(__file__))[0])
 from AsyncDownloader import async_pic_download
 
 agency = None  # 使用代理的话就修改为代理地址
 
 api_key = ''
+
 # agency 代理地址 api_key 为Saucenao网站的api许可，注册一个点账号信息就有了，也可以留空，100次访问/ip日
 
 
@@ -15,6 +20,7 @@ class SauceNao:
     """
     SauceNao 以图搜图 api
     """
+
     def __init__(self):
         self.state = 200
         self.api_key = api_key
@@ -24,9 +30,9 @@ class SauceNao:
         # http1模式 调用SauceNao api
 
         self.saucenao_url = 'https://saucenao.com/search.php'
-        self.api_mode = 0  # 0 =普通html, 1 = xml api（未实现）, 2 = json api
+        self.api_mode = 2  # 0 =普通html, 1 = xml api（未实现）, 2 = json api
         self.minsim = '80!'  # 决定图片边缘细节
-        self.numres = 5  # 预定返回结果数
+        self.numres = 2  # 预定返回结果数
         self.dbmask = 999  # 999为类型全开
         # forcing minsim to 80 is generally safe for complex images, but may miss some edge cases. If images being
         # checked are primarily low detail, such as simple sketches on white paper, increase this to cut down on false
@@ -69,52 +75,43 @@ class SauceNao:
         :return:搜索结果 字典形式
         """
         search_html = response.content.decode('utf-8')  # 解码
-
+        search_json = json.loads(search_html)
+        result_json = search_json['results']
         # 判断下有几个结果
-        match_num = len(re.findall("resultimage", search_html))
-        suspect_num = len(re.findall("result hidden", search_html))
-        match_num = match_num - suspect_num
+        match_json = [i for i in result_json if i['header']['hidden'] == 0]
+        suspect_json = [i for i in result_json if i['header']['hidden'] == 1]
+        match_num = len(match_json)
+        suspect_num = len(suspect_json)
         print(f'SauceNao搜索到{match_num}个高置信结果，{suspect_num}个低置信结果')
 
         # 用于防止某些极端情况下，网页标签结果问题导致的错误
         if match_num == 0:
-            self.state = 'SauceNao无搜搜结果'
+            self.state = 'SauceNao无搜索结果'
             print('SauceNao无搜索结果')
             return False
 
-        search_html = etree.HTML(search_html)  # etree化，做html解析，要在re搜索完可能结果后再etree
+        for item in match_json:
+            self.img_url.append(item['header']['thumbnail'])
+            self.correct_rate.append(item['header']['similarity'])
+            self.img_name.append(item['header']['index_name'])
 
-        for i in range(min(match_num, self.numres)):
+            result_title = "无法获取title"
+            result_content = ""
+            title_flag = True
 
-            n = i + 2
-            # 匹配图片url
-            img_xpath = f"/html/body/div[2]/div[3]/div[{n}]/table/tr/td[1]/div/a/img"
-            img_html = search_html.xpath(img_xpath)
-            img_url = img_html[0].get('src')
-            self.img_url.append(img_url)
-            # 匹配图片文件名
-            self.img_name.append(self._image_url2name(img_url))
-            # 匹配图片相似度
-            corr_xpath = f"/html/body/div[2]/div[3]/div[{n}]/table/tr/td[2]/div[1]/div[1]"
-            corr_html = search_html.xpath(corr_xpath)
-            self.correct_rate.append(corr_html[0].text)
-            # 匹配图片标题
-            title_xpath = f"/html/body/div[2]/div[3]/div[{n}]/table/tr/td[2]/div[2]/div[1]"
-            title_html = search_html.xpath(title_xpath)
-            self.result_title.append(title_html[0][0].text)
-            # 匹配图片副标题
-            title0_xpath = f"/html/body/div[2]/div[3]/div[{n}]/table/tr/td[2]/div[2]/div[1]/text()"
-            title0_html = search_html.xpath(title0_xpath)
-            self.result_title[i] += title0_html[0] if len(title0_html) else ''
-            # 匹配图片文字说明
-            result_content_xpath = f"/html/body/div[2]/div[3]/div[{n}]/table/tr/td[2]/div[2]/div[2]"
-            result_content_html = search_html.xpath(result_content_xpath)
-            result_content0_xpath = f"/html/body/div[2]/div[3]/div[{n}]/table/tr/td[2]/div[2]/div[2]/text()"
-            result_content0_html = search_html.xpath(result_content0_xpath)
-            result_content = ''
-            for j in result_content_html[0]:
-                result_content += j.text if j.text else '' + ' '
-            result_content += result_content0_html[0] if len(result_content0_html) else ''
+            for content in item['data'].values():
+                content = str(content)
+                # 跳过链接
+                if "http" in content:
+                    continue
+                # 仅设置一次title 取第一个值
+                if title_flag:
+                    result_title = content
+                    title_flag = False
+                    continue
+                # 其余的全搞成content
+                result_content += content
+            self.result_title.append(result_title)
             self.result_content.append(result_content)
 
         results = {'img_url': self.img_url, 'correct_rate': self.correct_rate,
@@ -145,18 +142,3 @@ class SauceNao:
         if not self.async_saucenao.is_closed:
             await self.async_saucenao.aclose()
         return report
-
-
-async def main5():
-    a = SauceNao()
-    result = await a.async_search(r'C:\Users\MSI-PC\Desktop\bmss\86482016.jpg')
-    print(result)
-    if result:
-        pic_list = await a.async_pic_download(download_path=r'C:\Users\MSI-PC\Desktop\bmss')
-        print(pic_list)
-    else:
-        print(a.state)
-
-
-if __name__ == '__main__':  # 测试例子
-    asyncio.run(main5())

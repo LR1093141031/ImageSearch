@@ -1,9 +1,12 @@
 import httpx
 from bs4 import BeautifulSoup
-import os
 import re
-from AsyncDownloader import async_pic_download
 import asyncio
+
+import os
+import sys
+sys.path.append(os.path.split(os.path.realpath(__file__))[0])
+from AsyncDownloader import async_pic_download
 
 agency = None  # 使用代理的话就修改为代理地址
 
@@ -12,11 +15,13 @@ class Ascii2d:
     def __init__(self):
         self.agency = agency
         self.state = 200
-        self.numres = 5  # 预定返回结果数
+        self.numres = 1  # 预定返回结果数
         self.ascii2d_url = "https://ascii2d.net/search/multi"
         self.img_url_prefix = 'https://ascii2d.net/'
 
-        self.async_ascii2d = httpx.AsyncClient(http2=False, verify=False, timeout=20, proxies=self.agency)
+        # 开启重定向，适配网站修改
+        self.async_ascii2d = httpx.AsyncClient(http2=False, verify=False, timeout=20
+                                               , proxies=self.agency, follow_redirects=True)
 
         self.img_url = []  # 匹配图片url
         self.img_name = []  # 匹配图片文件名
@@ -30,7 +35,7 @@ class Ascii2d:
 
     async def async_search(self, img_file_full_path: str):
         file_name = os.path.basename(img_file_full_path)
-        print(f'搜索图片名称:{file_name}')
+        print(f'Ascii2d搜索图片名称:{file_name}')
         files = {'file': ("image.png", open(img_file_full_path, 'rb'))}
         try:
             response = await self.async_ascii2d.post(url=self.ascii2d_url, files=files)
@@ -39,6 +44,7 @@ class Ascii2d:
             self.state = 'Ascii2d网络请求出错'
             print('Ascii2d网络请求出错', e)
             return False
+
         return self._parser(response)
 
     def _parser(self, response):
@@ -103,17 +109,3 @@ class Ascii2d:
             await self.async_ascii2d.aclose()
         return results
 
-
-async def main5():
-    a = Ascii2d()
-    result = await a.async_search(r'C:\Users\MSI-PC\Desktop\bmss\86482016.jpg')
-    print(result)
-    if result:
-        pic_list = await a.async_pic_download(download_path=r'C:\Users\MSI-PC\Desktop\bmss')
-        print(pic_list)
-    else:
-        print(a.state)
-
-
-if __name__ == '__main__':  # 测试例子
-    asyncio.run(main5())
