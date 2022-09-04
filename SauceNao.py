@@ -99,14 +99,14 @@ class SauceNao:
             result_content = ""
             title_flag = True
 
-            for content in item['data'].values():
-                content = str(content)
+            for key in item['data'].keys():
+                content = str(item['data'][key])
                 # 跳过链接
                 if "http" in content:
                     continue
                 # 仅设置一次title 取第一个值
                 if title_flag:
-                    result_title = content
+                    result_title = f"{key}: {content}"
                     title_flag = False
                     continue
                 # 其余的全搞成content
