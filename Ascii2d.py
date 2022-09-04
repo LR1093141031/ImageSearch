@@ -108,4 +108,3 @@ class Ascii2d:
         if not self.async_ascii2d.is_closed:
             await self.async_ascii2d.aclose()
         return results
-

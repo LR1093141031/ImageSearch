@@ -93,7 +93,7 @@ class SauceNao:
         for item in match_json:
             self.img_url.append(item['header']['thumbnail'])
             self.correct_rate.append(item['header']['similarity'])
-            self.img_name.append(item['header']['index_name'] + ".jpg")
+            self.img_name.append(item['header']['index_name'].replace(".jpg", "") + ".jpg")
 
             result_title = "无法获取title"
             result_content = ""
