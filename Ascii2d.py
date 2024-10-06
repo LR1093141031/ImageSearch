@@ -1,10 +1,11 @@
 import httpx
+import requests
 from bs4 import BeautifulSoup
 import re
-import asyncio
 
 import os
 import sys
+
 sys.path.append(os.path.split(os.path.realpath(__file__))[0])
 from AsyncDownloader import async_pic_download
 
@@ -57,9 +58,9 @@ class Ascii2d:
             print('Ascii2d无搜索结果')
             return False
         else:
-            print(f'Ascii2d搜索到{results_num-1}个结果')
+            print(f'Ascii2d搜索到{results_num - 1}个结果')
 
-        items = items[1: min(results_num, self.numres+1)]  # 限制搜索结果数量，第一个为无效结果
+        items = items[1: min(results_num, self.numres + 1)]  # 限制搜索结果数量，第一个为无效结果
 
         for item in items:
             # 匹配图片url
@@ -79,14 +80,47 @@ class Ascii2d:
             # 匹配图片超链接
             herf = ''
             herf += detail_a[0]['herf'] if (detail_a[0].string not in self.button_word) and (
-                        'herf' in detail_a[0]) else ''
+                    'herf' in detail_a[0]) else ''
             herf += ' ' + detail_a[1]['herf'] if (detail_a[1].string not in self.button_word) and (
-                        'herf' in detail_a[0]) else ''
+                    'herf' in detail_a[0]) else ''
             self.herf.append(herf)
 
         results = {'img_url': self.img_url, 'correct_rate': self.correct_rate,
                    'result_title': self.result_title, 'result_content': self.result_content}
 
+        return results
+
+    @staticmethod
+    def get_ascii2d_image(img_url: str):
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36 Edg/117.0.2045.47'
+        }
+
+        base_url = 'https://ascii2d.net'
+        search_url = f'https://ascii2d.net/search/url/{img_url}'
+        res_info = requests.get(search_url, headers=headers)
+        html_text = res_info.text.replace('\n', '').replace('\r', '')
+        re_res = re.findall(r'item-box.*?lazy(.*?)alt=.*?noopener(.*?)>(.*?)</a>.*?clearfix', html_text)
+
+        img_url = []  # 匹配图片url
+        img_name = []  # 匹配图片文件名
+        correct_rate = []  # 准确率，Ascii2d没有准确率
+        result_title = []  # 结果标题
+        result_content = []  # 搜索结果副标题
+        download_report = []  # 匹配图片下载确认，成功则为全路径 失败为False
+        herf = []  # 所有匹配结果对应超链接，不返回，需要自行访问
+
+        for img_info in re_res:
+            print(img_info)
+            img_url.append(img_info[0].replace('" src="', base_url).replace('" ', ""))
+            img_name.append(img_info[2])
+            correct_rate.append("")
+            result_title.append(img_info[2])
+            result_content.append(img_info[2])
+            herf.append(img_info[1])
+
+        results = {'img_url': img_url, 'correct_rate': correct_rate,
+                   'result_title': result_title, 'result_content': result_content}
         return results
 
     @staticmethod
@@ -108,3 +142,10 @@ class Ascii2d:
         if not self.async_ascii2d.is_closed:
             await self.async_ascii2d.aclose()
         return results
+
+
+if __name__ == "__main__":
+    a = Ascii2d()
+    b = a.get_ascii2d_image(
+        "https://gchat.qpic.cn/download?appid=1407&fileid=CgoxMDkzMTQxMDMxEhRBEhFJbB32S1QgLoKUE3gPyAF5-xja_gwg_wooq__W2974iAMyBHByb2RQgL2jAQ&rkey=CAISKHim-nm2GSiHR88YKN8x0-IAfzAHxUCNf2762iHoXoJCXDQbtdjWTJE&spec=0")
+    print(b)
