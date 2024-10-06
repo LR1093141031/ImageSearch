@@ -91,7 +91,7 @@ class Ascii2d:
         return results
 
     @staticmethod
-    def get_ascii2d_image(img_url: str):
+    def search_by_url(img_url: str):
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36 Edg/117.0.2045.47'
         }
@@ -146,6 +146,6 @@ class Ascii2d:
 
 if __name__ == "__main__":
     a = Ascii2d()
-    b = a.get_ascii2d_image(
+    b = a.search_by_url(
         "https://gchat.qpic.cn/download?appid=1407&fileid=CgoxMDkzMTQxMDMxEhRBEhFJbB32S1QgLoKUE3gPyAF5-xja_gwg_wooq__W2974iAMyBHByb2RQgL2jAQ&rkey=CAISKHim-nm2GSiHR88YKN8x0-IAfzAHxUCNf2762iHoXoJCXDQbtdjWTJE&spec=0")
     print(b)
